@@ -1,0 +1,11 @@
+docx2txt==0.8
+Flask==3.0.3
+joblib==1.4.2
+matplotlib==3.9.2
+numpy==2.1.2
+pandas==2.2.3
+PyPDF2==3.0.1
+scikit-learn==1.5.2
+seaborn==0.13.2
+wordcloud==1.9.3
+xgboost==2.1.1
