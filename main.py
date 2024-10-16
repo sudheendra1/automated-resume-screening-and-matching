@@ -21,10 +21,19 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+from sklearn.metrics.pairwise import cosine_similarity
+from transformers import BartTokenizer, BartModel
+import torch
+import numpy as np
+
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 
+
+# Load BART model and tokenizer
+tokenizer = BartTokenizer.from_pretrained('facebook/bart-base')
+model = BartModel.from_pretrained('facebook/bart-base')
 # Load and prepare dataset
 def load_and_train_model(dataset_path):
     # Load dataset
@@ -208,6 +217,14 @@ def load_model():
     label_encoder = joblib.load('label_encoder.pkl')
     return model, vectorizer, label_encoder
 
+# Function to extract embeddings using BART
+def get_bart_embeddings(text):
+    inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    # Get the embeddings of the [CLS] token (usually the first token in each sequence)
+    embeddings = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+    return embeddings
 # Function to classify resume category
 def classify_resume(resume_text, model, vectorizer, label_encoder):
     resume_vect = vectorizer.transform([resume_text])
@@ -263,21 +280,34 @@ def matcher():
 
         if not resumes or not job_description:
             return render_template('matchresume.html', message="Please upload resumes and enter a job description.")
+        
+         # Get embeddings for job description and resumes
+        job_embedding = get_bart_embeddings(job_description)
+        resume_embeddings = [get_bart_embeddings(resume) for resume in resumes]
+
+        # Calculate cosine similarity between job description and each resume
+        similarities = [cosine_similarity([job_embedding], [emb])[0][0] for emb in resume_embeddings]
+        
 
         vectorizer = TfidfVectorizer().fit_transform([job_description] + resumes)
         vectors = vectorizer.toarray()
 
         job_vector = vectors[0]
         resume_vectors = vectors[1:]
-        similarities = cosine_similarity([job_vector], resume_vectors)[0]
+        print(f"Job vector shape: {job_vector.shape}")
+        print(f"Resume vectors shape: {resume_vectors.shape}")
+        #similarities = cosine_similarity([job_vector], resume_vectors)[0]
 
-        top_indices = similarities.argsort()[-2:][::-1]
-        top_resumes = [(resume_files[i].filename, categories[i]) for i in top_indices]
-        similarity_scores = [round(similarities[i], 2) for i in top_indices]
+       #top_indices = similarities.argsort()[-2:][::-1]
+        #top_resumes = [(resume_files[i].filename, categories[i]) for i in top_indices]
+        #similarity_scores = [round(similarities[i], 2) for i in top_indices]
+        top_indices = np.argsort(similarities)[-2:][::-1]
+        top_resumes = [(resume_files[i].filename, similarities[i]) for i in top_indices]
+        similarity_scores = [similarities[i] for i in top_indices] 
         matched_categories = [categories[i] for i in top_indices]
 
         return render_template('matchresume.html', message="Top matching resumes:", 
-                               top_resumes=top_resumes, similarity_scores=similarity_scores, 
+                               top_resumes=top_resumes[0], similarity_scores=similarity_scores, 
                                matched_categories=matched_categories)
 
     return render_template('matchresume.html')
